@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>SaaS Messenger</title>
+
+  <!-- Tailwind CSS -->
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Supabase JS -->
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+</head>
+
+<body class="bg-gray-900 text-white font-sans h-screen flex flex-col">
+
+  <!-- Header -->
+
+  <header class="p-4 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
+
+```
+<h1 class="text-xl font-bold text-indigo-400">
+  ⚡ SaaS Messenger
+</h1>
+
+<div class="flex gap-3 items-center">
+
+  <input
+    id="user-name-input"
+    type="text"
+    value="Polzovatel"
+    placeholder="Ваше имя"
+    class="bg-gray-700 px-3 py-1 rounded text-sm outline-none border border-gray-600 focus:border-indigo-500"
+  >
+
+  <button
+    id="btn-pro"
+    class="bg-gradient-to-r from-amber-500 to-red-500 hover:opacity-90 text-white px-3 py-1 rounded text-sm font-semibold"
+  >
+    💱 Купить Pro
+  </button>
+
+</div>
+```
+
+  </header>
+
+  <!-- Main -->
+
+  <div class="flex-1 flex overflow-hidden">
+
+```
+<!-- Rooms -->
+<aside class="w-1/4 bg-gray-800 border-r border-gray-700 flex flex-col">
+
+  <div class="p-3 border-b border-gray-700 flex gap-2">
+
+    <input
+      id="new-room-input"
+      type="text"
+      placeholder="Название комнаты"
+      class="w-full bg-gray-700 px-3 py-1 rounded text-sm outline-none border border-gray-600 focus:border-indigo-500"
+    >
+
+    <button
+      id="btn-create-room"
+      class="bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded text-sm font-bold"
+    >
+      +
+    </button>
+
+  </div>
+
+  <div
+    id="rooms-list"
+    class="flex-1 overflow-y-auto p-2 space-y-1"
+  ></div>
+
+</aside>
+
+
+<!-- Chat -->
+<main class="flex-1 flex flex-col bg-gray-900">
+
+  <!-- Current room -->
+  <div
+    id="current-room-title"
+    class="p-3 bg-gray-800 border-b border-gray-700 font-bold text-gray-300"
+  >
+    Выберите комнату
+  </div>
+
+
+  <!-- Messages -->
+  <div
+    id="messages-list"
+    class="flex-1 overflow-y-auto p-4 space-y-3"
+  >
+    <div class="text-center text-gray-500 mt-10">
+      Выберите чат слева, чтобы начать общение
+    </div>
+  </div>
+
+
+  <!-- Message input -->
+  <div class="p-3 bg-gray-800 border-t border-gray-700 flex gap-2">
+
+    <input
+      id="message-input"
+      type="text"
+      placeholder="Напишите сообщение..."
+      class="flex-1 bg-gray-700 px-4 py-2 rounded-lg outline-none border border-gray-600 focus:border-indigo-500"
+    >
+
+    <button
+      id="btn-send-message"
+      class="bg-indigo-600 hover:bg-indigo-700 px-5 py-2 rounded-lg font-bold"
+    >
+      Отправить
+    </button>
+
+  </div>
+
+</main>
+```
+
+  </div>
+
+  <script>
+
+    // =====================================================
+    // CONFIGURATION
+    // =====================================================
+
+    const BACKEND_URL = window.location.origin;
+
+    const SUPABASE_URL =
+      "https://bjggkhhjjgcltfsfghhwg.supabase.co";
+
+    const SUPABASE_ANON_KEY =
+      "eyJhbGciOiJIUzI1NiIsInR5cafCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqZ2draGhqamdjbHRmc3NnaHdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMjc1NjksImV4cCI6MjEwNDYwMzU2OX0.FK-EUr1ZVrlEizriAAeORNP1lAUdDoGRAP6neGFeYtc";
+
+
+    // =====================================================
+    // SUPABASE
+    // =====================================================
+
+    const supabase =
+      window.supabase
+        ? window.supabase.createClient(
+            SUPABASE_URL,
+            SUPABASE_ANON_KEY
+          )
+        : null;
+
+
+    // =====================================================
+    // GLOBAL VARIABLES
+    // =====================================================
+
+    let activeRoomId = null;
+
+    let realtimeChannel = null;
+
+    const userId =
+      "user_" +
+      Math.random()
+        .toString(36)
+        .substring(2, 9);
+
+
+    // =====================================================
+    // SECURITY
+    // =====================================================
+
+    function sanitizeHTML(value) {
+
+      const div = document.createElement("div");
+
+      div.textContent = value ?? "";
+
+      return div.innerHTML;
+    }
+
+
+    // =====================================================
+    // LOAD ROOMS
+    // =====================================================
+
+    async function loadRooms() {
+
+      try {
+
+        const response = await fetch(
+          `${BACKEND_URL}/api/rooms`
+        );
+
+        if (!response.ok) {
+          throw new Error("Ошибка загрузки комнат");
+        }
+
+        const rooms = await response.json();
+
+        const list =
+          document.getElementById("rooms-list");
+
+        list.innerHTML = "";
+
+
+        if (!Array.isArray(rooms)) {
+          return;
+        }
+
+
+        rooms.forEach(room => {
+
+          const button =
+            document.createElement("button");
+
+          button.className =
+            "w-full text-left px-3 py-2 rounded " +
+            "hover:bg-gray-700 text-sm font-medium " +
+            "transition";
+
+          button.textContent =
+            "# " + (room.name || "Без названия");
+
+
+          button.onclick = () => {
+
+            selectRoom(
+              room.id,
+              room.name
+            );
+
+          };
+
+
+          list.appendChild(button);
+
+        });
+
+      } catch (error) {
+
+        console.error(
+          "Ошибка загрузки комнат:",
+          error
+        );
+
+      }
+
+    }
+
+
+    // =====================================================
+    // SELECT ROOM
+    // =====================================================
+
+    async function selectRoom(roomId, roomName) {
+
+      activeRoomId = roomId;
+
+      document.getElementById(
+        "current-room-title"
+      ).textContent =
+        "# " + (roomName || "Без названия");
+
+
+      // Удаляем старую Realtime подписку
+      if (realtimeChannel && supabase) {
+
+        await supabase.removeChannel(
+          realtimeChannel
+        );
+
+        realtimeChannel = null;
+
+      }
+
+
+      try {
+
+        const response = await fetch(
+          `${BACKEND_URL}/api/rooms/${roomId}/messages`
+        );
+
+
+        if (!response.ok) {
+          throw new Error(
+            "Ошибка загрузки сообщений"
+          );
+        }
+
+
+        const messages =
+          await response.json();
+
+
+        renderMessages(messages);
+
+
+        subscribeToRealtime(roomId);
+
+      } catch (error) {
+
+        console.error(
+          "Ошибка загрузки сообщений:",
+          error
+        );
+
+      }
+
+    }
+
+
+    // =====================================================
+    // RENDER MESSAGES
+    // =====================================================
+
+    function renderMessages(messages) {
+
+      const list =
+        document.getElementById(
+          "messages-list"
+        );
+
+      list.innerHTML = "";
+
+
+      if (!Array.isArray(messages)) {
+        return;
+      }
+
+
+      messages.forEach(message => {
+
+        addMessageToUI(
+          message.user_name,
+          message.text
+        );
+
+      });
+
+
+      scrollMessagesToBottom();
+
+    }
+
+
+    // =====================================================
+    // ADD MESSAGE TO UI
+    // =====================================================
+
+    function addMessageToUI(userName, text) {
+
+      const list =
+        document.getElementById(
+          "messages-list"
+        );
+
+
+      const messageDiv =
+        document.createElement("div");
+
+      messageDiv.className =
+        "bg-gray-800 p-3 rounded-lg max-w-lg";
+
+
+      const nameDiv =
+        document.createElement("div");
+
+      nameDiv.className =
+        "text-xs text-indigo-400 font-bold mb-1";
+
+      nameDiv.textContent =
+        userName || "Аноним";
+
+
+      const textDiv =
+        document.createElement("div");
+
+      textDiv.className =
+        "text-sm text-gray-200 whitespace-pre-wrap break-words";
+
+      textDiv.textContent =
+        text || "";
+
+
+      messageDiv.appendChild(nameDiv);
+
+      messageDiv.appendChild(textDiv);
+
+      list.appendChild(messageDiv);
+
+    }
+
+
+    // =====================================================
+    // SCROLL
+    // =====================================================
+
+    function scrollMessagesToBottom() {
+
+      const list =
+        document.getElementById(
+          "messages-list"
+        );
+
+      list.scrollTop =
+        list.scrollHeight;
+
+    }
+
+
+    // =====================================================
+    // SUPABASE REALTIME
+    // =====================================================
+
+    function subscribeToRealtime(roomId) {
+
+      if (!supabase) {
+
+        console.warn(
+          "Supabase не подключен"
+        );
+
+        return;
+
+      }
+
+
+      realtimeChannel =
+        supabase
+          .channel(
+            `messages-room-${roomId}`
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "messages",
+              filter: `room_id=eq.${roomId}`
+            },
+            payload => {
+
+              console.log(
+                "Новое сообщение:",
+                payload
+              );
+
+
+              if (
+                !payload ||
+                !payload.new
+              ) {
+
+                return;
+
+              }
+
+
+              addMessageToUI(
+                payload.new.user_name,
+                payload.new.text
+              );
+
+
+              scrollMessagesToBottom();
+
+            }
+          )
+          .subscribe(
+            status => {
+
+              console.log(
+                "Realtime status:",
+                status
+              );
+
+            }
+          );
+
+    }
+
+
+    // =====================================================
+    // SEND MESSAGE
+    // =====================================================
+
+    document
+      .getElementById("btn-send-message")
+      .addEventListener(
+        "click",
+        sendMessage
+      );
+
+
+    async function sendMessage() {
+
+      const input =
+        document.getElementById(
+          "message-input"
+        );
+
+
+      const text =
+        input.value.trim();
+
+
+      const userName =
+        document.getElementById(
+          "user-name-input"
+        ).value.trim();
+
+
+      if (!activeRoomId) {
+
+        alert(
+          "Сначала выберите комнату."
+        );
+
+        return;
+
+      }
+
+
+      if (!text) {
+        return;
+      }
+
+
+      try {
+
+        const response =
+          await fetch(
+            `${BACKEND_URL}/api/messages`,
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
+
+              body: JSON.stringify({
+                roomId: activeRoomId,
+                userId: userId,
+                userName:
+                  userName || "Аноним",
+                text: text
+              })
+            }
+          );
+
+
+        if (!response.ok) {
+
+          throw new Error(
+            "Не удалось отправить сообщение"
+          );
+
+        }
+
+
+        input.value = "";
+
+        input.focus();
+
+      } catch (error) {
+
+        console.error(
+          "Ошибка отправки сообщения:",
+          error
+        );
+
+        alert(
+          "Не удалось отправить сообщение."
+        );
+
+      }
+
+    }
+
+
+    // =====================================================
+    // ENTER TO SEND
+    // =====================================================
+
+    document
+      .getElementById("message-input")
+      .addEventListener(
+        "keydown",
+        event => {
+
+          if (
+            event.key === "Enter" &&
+            !event.shiftKey
+          ) {
+
+            event.preventDefault();
+
+            sendMessage();
+
+          }
+
+        }
+      );
+
+
+    // =====================================================
+    // CREATE ROOM
+    // =====================================================
+
+    document
+      .getElementById("btn-create-room")
+      .addEventListener(
+        "click",
+        createRoom
+      );
+
+
+    async function createRoom() {
+
+      const input =
+        document.getElementById(
+          "new-room-input"
+        );
+
+
+      const name =
+        input.value.trim();
+
+
+      if (!name) {
+        return;
+      }
+
+
+      try {
+
+        const response =
+          await fetch(
+            `${BACKEND_URL}/api/rooms`,
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
+
+              body: JSON.stringify({
+                name: name
+              })
+            }
+          );
+
+
+        if (!response.ok) {
+
+          throw new Error(
+            "Не удалось создать комнату"
+          );
+
+        }
+
+
+        input.value = "";
+
+        await loadRooms();
+
+      } catch (error) {
+
+        console.error(
+          "Ошибка создания комнаты:",
+          error
+        );
+
+        alert(
+          "Не удалось создать комнату."
+        );
+
+      }
+
+    }
+
+
+    // =====================================================
+    // ENTER TO CREATE ROOM
+    // =====================================================
+
+    document
+      .getElementById("new-room-input")
+      .addEventListener(
+        "keydown",
+        event => {
+
+          if (event.key === "Enter") {
+
+            createRoom();
+
+          }
+
+        }
+      );
+
+
+    // =====================================================
+    // PRO PAYMENT
+    // =====================================================
+
+    document
+      .getElementById("btn-pro")
+      .addEventListener(
+        "click",
+        createCheckout
+      );
+
+
+    async function createCheckout() {
+
+      try {
+
+        const response =
+          await fetch(
+            `${BACKEND_URL}/api/create-checkout-session`,
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
+
+              body: JSON.stringify({
+                userId: userId
+              })
+            }
+          );
+
+
+        if (!response.ok) {
+
+          throw new Error(
+            "Ошибка создания платежа"
+          );
+
+        }
+
+
+        const data =
+          await response.json();
+
+
+        if (data.url) {
+
+          window.location.href =
+            data.url;
+
+        } else {
+
+          alert(
+            "Не удалось создать оплату."
+          );
+
+        }
+
+      } catch (error) {
+
+        console.error(
+          "Ошибка оплаты:",
+          error
+        );
+
+        alert(
+          "Произошла ошибка при оплате."
+        );
+
+      }
+
+    }
+
+
+    // =====================================================
+    // START APPLICATION
+    // =====================================================
+
+    loadRooms();
+
+  </script>
+
+</body>
+</html>
